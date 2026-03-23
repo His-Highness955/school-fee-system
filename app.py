@@ -6,18 +6,23 @@ import io
 import json
 
 # -------------------------------
-# 1️⃣ Load Service Account from Streamlit Secrets
+# 1️⃣ Load Service Account & Spreadsheet
 # -------------------------------
 
+# This will automatically use the secrets you've saved in Streamlit Cloud
 try:
+    # We parse the secret directly. 
+    # NOTE: Ensure your secret name in Streamlit matches "google_service_account"
     creds_dict = json.loads(st.secrets["google_service_account"]["json"])
+    
     scope = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/drive"]
+    
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
-    st.success("✅ Service account authorized via Streamlit Secrets")
+    # Optional: remove st.success if you want a cleaner UI
 except Exception as e:
-    st.error(f"❌ Failed to authorize service account: {e}")
+    st.error(f"❌ Connection Error: Ensure secrets are configured in Streamlit Cloud. {e}")
     st.stop()
 
 # -------------------------------
