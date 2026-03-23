@@ -213,7 +213,7 @@ else:
 # 7️⃣ Admin: Delete Student Record
 # -------------------------------
 st.header("🗑️ Admin: Delete Student")
-MASTER_CODE = "BOUESTI-2026" # Change this to your preferred code
+MASTER_CODE = "2026" # Change this to your preferred code
 
 with st.expander("Open Delete Panel"):
     with st.form("delete_student_form"):
