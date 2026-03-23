@@ -4,63 +4,31 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import io
 import json
-import os
 
 # -------------------------------
-# 1️⃣ Load Service Account & Spreadsheet
+# 1️⃣ Load Service Account from Streamlit Secrets
 # -------------------------------
 
-# Set your local file path if available
-LOCAL_JSON_PATH = "C:\\Users\\Admin\\Desktop\\school_fee_system\\service_account.json"
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1DHdvbVUjUhHN4vwXG6jByubgMjfKzWp2Sq3yg-zOAzc/edit?usp=sharing"  # Replace with your sheet URL
-
-creds = None
-client = None
-
-# Try to use local JSON first
-if os.path.exists(LOCAL_JSON_PATH):
-    try:
-        with open(LOCAL_JSON_PATH) as f:
-            creds_dict = json.load(f)
-        scope = ["https://spreadsheets.google.com/feeds",
-                 "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        st.success("✅ Service account loaded from local JSON")
-    except Exception as e:
-        st.warning(f"Failed to authorize local JSON: {e}")
-        creds = None
-
-# If local JSON failed or not found, fallback to Streamlit upload
-if creds is None:
-    st.header("Upload Service Account JSON")
-    uploaded_file = st.file_uploader("Upload your service_account.json", type="json")
-    if uploaded_file is None:
-        st.warning("Please upload your service_account.json")
-        st.stop()
-    try:
-        uploaded_file.seek(0)
-        creds_dict = json.load(uploaded_file)
-        scope = ["https://spreadsheets.google.com/feeds",
-                 "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        st.success("✅ Service account loaded via upload")
-    except Exception as e:
-        st.error(f"Failed to authorize uploaded JSON: {e}")
-        st.stop()
+try:
+    creds_dict = json.loads(st.secrets["google_service_account"]["json"])
+    scope = ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    st.success("✅ Service account authorized via Streamlit Secrets")
+except Exception as e:
+    st.error(f"❌ Failed to authorize service account: {e}")
+    st.stop()
 
 # -------------------------------
 # 2️⃣ Connect to Google Sheet
 # -------------------------------
 
-if not SPREADSHEET_URL:
-    st.warning("Please set your Google Sheet URL in the code")
-    st.stop()
-
-SPREADSHEET_URL = SPREADSHEET_URL.strip().split("/edit")[0]
+# Set your Google Sheet URL here
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1DHdvbVUjUhHN4vwXG6jByubgMjfKzWp2Sq3yg-zOAzc/edit"
 
 try:
+    SPREADSHEET_URL = SPREADSHEET_URL.strip().split("/edit")[0]
     sheet = client.open_by_url(SPREADSHEET_URL)
     students_sheet = sheet.worksheet("students")
     payments_sheet = sheet.worksheet("payments")
@@ -241,11 +209,11 @@ else:
 # -------------------------------
 st.header("📖 How to Use the School Fee System")
 with st.expander("1️⃣ Add New Student"):
-    st.write("- Fill Student ID, Name, Class, Total Fee, Parent Phone Number  \n- Click Add Student")
+    st.write("- Fill Student ID, Name, Class, Total Fee, Parent Phone Number  \n- Click Add Student")
 with st.expander("2️⃣ Record Payment"):
-    st.write("- Select student, fill amount, date/time, paid by, recorded by, term/session  \n- Click Record Payment")
+    st.write("- Select student, fill amount, date/time, paid by, recorded by, term/session  \n- Click Record Payment")
 with st.expander("3️⃣ Search/Filter"):
-    st.write("- Search student by name or check 'Filter by Debtors'  \n- Color-coded balances: Green=Full, Orange=Partial, Red=No Payment")
+    st.write("- Search student by name or check 'Filter by Debtors'  \n- Color-coded balances: Green=Full, Orange=Partial, Red=No Payment")
 with st.expander("4️⃣ Export Debtors"):
     st.write("- After filtering debtors, click Export Debtors to CSV")
 st.success("You are ready to manage school fees ✅")
