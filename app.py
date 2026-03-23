@@ -213,7 +213,7 @@ else:
 # 7️⃣ Admin: Delete Student Record
 # -------------------------------
 st.header("🗑️ Admin: Delete Student")
-MASTER_CODE = "BOUESTI-2026" 
+MASTER_CODE = "2026" 
 
 with st.expander("Open Delete Panel"):
     # Fresh data pull
