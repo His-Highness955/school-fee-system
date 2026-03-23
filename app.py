@@ -1,0 +1,251 @@
+import streamlit as st
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+import io
+import json
+import os
+
+# -------------------------------
+# 1️⃣ Load Service Account & Spreadsheet
+# -------------------------------
+
+# Set your local file path if available
+LOCAL_JSON_PATH = "C:\\Users\\Admin\\Desktop\\school_fee_system\\service_account.json"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1DHdvbVUjUhHN4vwXG6jByubgMjfKzWp2Sq3yg-zOAzc/edit?usp=sharing"  # Replace with your sheet URL
+
+creds = None
+client = None
+
+# Try to use local JSON first
+if os.path.exists(LOCAL_JSON_PATH):
+    try:
+        with open(LOCAL_JSON_PATH) as f:
+            creds_dict = json.load(f)
+        scope = ["https://spreadsheets.google.com/feeds",
+                 "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        st.success("✅ Service account loaded from local JSON")
+    except Exception as e:
+        st.warning(f"Failed to authorize local JSON: {e}")
+        creds = None
+
+# If local JSON failed or not found, fallback to Streamlit upload
+if creds is None:
+    st.header("Upload Service Account JSON")
+    uploaded_file = st.file_uploader("Upload your service_account.json", type="json")
+    if uploaded_file is None:
+        st.warning("Please upload your service_account.json")
+        st.stop()
+    try:
+        uploaded_file.seek(0)
+        creds_dict = json.load(uploaded_file)
+        scope = ["https://spreadsheets.google.com/feeds",
+                 "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        st.success("✅ Service account loaded via upload")
+    except Exception as e:
+        st.error(f"Failed to authorize uploaded JSON: {e}")
+        st.stop()
+
+# -------------------------------
+# 2️⃣ Connect to Google Sheet
+# -------------------------------
+
+if not SPREADSHEET_URL:
+    st.warning("Please set your Google Sheet URL in the code")
+    st.stop()
+
+SPREADSHEET_URL = SPREADSHEET_URL.strip().split("/edit")[0]
+
+try:
+    sheet = client.open_by_url(SPREADSHEET_URL)
+    students_sheet = sheet.worksheet("students")
+    payments_sheet = sheet.worksheet("payments")
+    st.success("✅ Connected to Google Sheets successfully!")
+except Exception as e:
+    st.error(f"Cannot access the spreadsheet: {e}")
+    st.stop()
+
+# -------------------------------
+# 3️⃣ Helper Functions
+# -------------------------------
+
+def clean_columns(df):
+    df.columns = [str(col).strip() if col is not None else "" for col in df.columns]
+    return df
+
+def get_students_df():
+    df = pd.DataFrame(students_sheet.get_all_records())
+    df = clean_columns(df)
+    if 'total_fee' in df.columns:
+        df['total_fee'] = pd.to_numeric(df['total_fee'], errors='coerce').fillna(0.0)
+    return df
+
+def get_payments_df():
+    df = pd.DataFrame(payments_sheet.get_all_records())
+    df = clean_columns(df)
+    if 'amount_paid' in df.columns:
+        df['amount_paid'] = pd.to_numeric(df['amount_paid'], errors='coerce').fillna(0.0)
+    return df
+
+def add_student(student_id, name, student_class, total_fee, parent_phone_number):
+    students_sheet.append_row([student_id, name, student_class, total_fee, parent_phone_number])
+
+def add_payment(student_id, amount_paid, date_paid, time_paid, paid_by, recorded_by, term, session):
+    payments_sheet.append_row([None, student_id, amount_paid, date_paid, time_paid, paid_by, recorded_by, term, session])
+
+# -------------------------------
+# 4️⃣ Add New Student
+# -------------------------------
+st.header("Add New Student")
+with st.form("student_form"):
+    student_id = st.text_input("Student ID")
+    name = st.text_input("Student Name")
+    student_class = st.text_input("Class")
+    total_fee = st.number_input("Total School Fee", min_value=0.0)
+    parent_phone_number = st.text_input("Parent Phone Number")
+    submit = st.form_submit_button("Add Student")
+
+    if submit:
+        students_df = get_students_df()
+        if student_id in students_df['student_id'].values:
+            st.error("❌ Student ID already exists")
+        else:
+            add_student(student_id, name, student_class, total_fee, parent_phone_number)
+            st.success("✅ Student added successfully")
+
+# -------------------------------
+# 5️⃣ Record Payment
+# -------------------------------
+st.header("Record Payment")
+students_df = get_students_df()
+if not students_df.empty:
+    student_options = {f"{row['student_id']} - {row['name']}": row['student_id'] for _, row in students_df.iterrows()}
+    with st.form("payment_form"):
+        selected_student = st.selectbox("Select Student", list(student_options.keys()))
+        student_id = student_options[selected_student]
+
+        amount_paid = st.number_input("Amount Paid", min_value=0.0)
+        date_paid = st.date_input("Date Paid")
+        time_paid = st.time_input("Time Paid")
+        paid_by = st.text_input("Paid By (Who brought the money)")
+        recorded_by = st.text_input("Recorded By (Staff name)")
+        term = st.selectbox("Term", ["First Term", "Second Term", "Third Term"])
+        session = st.text_input("Session (e.g. 2025/2026)")
+        submit_payment = st.form_submit_button("Record Payment")
+
+        if submit_payment:
+            add_payment(student_id, amount_paid, str(date_paid), str(time_paid), paid_by, recorded_by, term, session)
+            st.success("✅ Payment recorded successfully")
+else:
+    st.warning("No students available. Add students first.")
+
+# -------------------------------
+# 6️⃣ Student Balances & Debtors
+# -------------------------------
+st.header("Student Balances & Debtors")
+students_df = get_students_df()
+payments_df = get_payments_df()
+
+if 'term' not in payments_df.columns or 'session' not in payments_df.columns:
+    st.error("❌ Payments sheet must have 'term' and 'session' columns")
+    st.stop()
+
+terms = ["All Terms"] + payments_df['term'].dropna().unique().tolist()
+sessions = ["All Sessions"] + payments_df['session'].dropna().unique().tolist()
+selected_term = st.selectbox("Filter by Term", terms)
+selected_session = st.selectbox("Filter by Session", sessions)
+
+search_name = st.text_input("Search Student by Name")
+filter_debtors = st.checkbox("Filter by Debtors")
+
+if search_name or filter_debtors:
+    filtered_students = []
+    for _, row in students_df.iterrows():
+        student_id = row['student_id']
+        name = row['name']
+        student_class = row['class']
+        total_fee = row.get('total_fee', 0.0)
+
+        student_payments = payments_df[payments_df['student_id'] == student_id]
+        if selected_term != "All Terms":
+            student_payments = student_payments[student_payments['term'] == selected_term]
+        if selected_session != "All Sessions":
+            student_payments = student_payments[student_payments['session'] == selected_session]
+
+        total_paid = student_payments['amount_paid'].sum() if not student_payments.empty else 0
+        balance = total_fee - total_paid
+
+        if filter_debtors and balance <= 0:
+            continue
+
+        filtered_students.append({
+            "name": name,
+            "class": student_class,
+            "total_fee": total_fee,
+            "total_paid": total_paid,
+            "balance": balance,
+            "parent_phone_number": row.get('parent_phone_number', '')
+        })
+
+    st.subheader("Filtered Student Balances")
+    debtors_list = []
+
+    for f in filtered_students:
+        if f['balance'] == 0:
+            color = 'green'
+            status = "Paid in Full ✅"
+        elif f['balance'] < f['total_fee']:
+            color = 'orange'
+            status = "Partial Payment ⚠️"
+            debtors_list.append(f)
+        else:
+            color = 'red'
+            status = "No Payment ❌"
+            debtors_list.append(f)
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.markdown(f"**{f['name']} ({f['class']})**")
+        col2.markdown(f"Total Fee: ₦{f['total_fee']}")
+        col3.markdown(f"Paid: ₦{f['total_paid']}")
+        col4.markdown(f"Balance: <span style='color:{color};font-weight:bold'>₦{f['balance']}</span>", unsafe_allow_html=True)
+        st.markdown(f"Parent Phone: {f['parent_phone_number']}")
+        st.markdown(f"Status: **{status}**")
+        st.markdown("---")
+
+    st.subheader("Debtors Only")
+    if debtors_list:
+        for d in debtors_list:
+            st.error(f"{d['name']} ({d['class']}) - Balance: ₦{d['balance']} - Parent Phone: {d['parent_phone_number']}")
+
+        if st.button("Export Debtors to CSV"):
+            df = pd.DataFrame(debtors_list)
+            buffer = io.BytesIO()
+            df.to_csv(buffer, index=False)
+            st.download_button(
+                label="Download Debtors CSV",
+                data=buffer,
+                file_name="debtors.csv",
+                mime="text/csv"
+            )
+    else:
+        st.success("No debtors found ✅")
+else:
+    st.info("🔎 Type a student name or check 'Filter by Debtors' to see results.")
+
+# -------------------------------
+# 7️⃣ Tutorial
+# -------------------------------
+st.header("📖 How to Use the School Fee System")
+with st.expander("1️⃣ Add New Student"):
+    st.write("- Fill Student ID, Name, Class, Total Fee, Parent Phone Number  \n- Click Add Student")
+with st.expander("2️⃣ Record Payment"):
+    st.write("- Select student, fill amount, date/time, paid by, recorded by, term/session  \n- Click Record Payment")
+with st.expander("3️⃣ Search/Filter"):
+    st.write("- Search student by name or check 'Filter by Debtors'  \n- Color-coded balances: Green=Full, Orange=Partial, Red=No Payment")
+with st.expander("4️⃣ Export Debtors"):
+    st.write("- After filtering debtors, click Export Debtors to CSV")
+st.success("You are ready to manage school fees ✅")
