@@ -41,76 +41,83 @@ except Exception as e:
     st.stop()
 
 # -------------------------------
-# 3️⃣ Helper Functions (Crucial for fixing KeyError)
+# 3️⃣ Helper Functions
 # -------------------------------
 def fetch_data(worksheet):
     data = worksheet.get_all_records()
     if not data:
         return pd.DataFrame()
     df = pd.DataFrame(data)
-    # This strips spaces and makes all column names lowercase for consistency
+    # Standardize column names to lowercase and remove spaces
     df.columns = [str(c).strip().lower() for c in df.columns]
     return df
 
 # -------------------------------
-# 4️⃣ UI - Collapsible Sections
+# 4️⃣ UI
 # -------------------------------
 st.title("🏫 School Fee Management System")
-st.write(f"📅 **Network Date:** {now.strftime('%d %B %Y')} | 🕒 **Time:** {now.strftime('%H:%M:%S')}")
+st.write(f"📅 **Date:** {now.strftime('%d %B %Y')} | 🕒 **Time:** {now.strftime('%H:%M:%S')}")
 
-# Refresh data
+# Refresh data from sheets
 students_df = fetch_data(students_sheet)
 payments_df = fetch_data(payments_sheet)
 
 # --- SECTION: ADD STUDENT ---
 with st.expander("➕ Add New Student"):
     with st.form("student_form", clear_on_submit=True):
-        name = st.text_input("Student Full Name")
-        student_class = st.selectbox("Select Class", SCHOOL_CLASSES)
-        total_fee = st.number_input("Total School Fee (₦)", min_value=0.0)
-        parent_phone = st.text_input("Parent Phone Number")
+        st.info("Ensure Student Sheet headers are: name, class, total_fee, parent_phone")
+        name_input = st.text_input("Student Full Name")
+        class_input = st.selectbox("Select Class", SCHOOL_CLASSES)
+        fee_input = st.number_input("Total School Fee (₦)", min_value=0.0)
+        phone_input = st.text_input("Parent Phone Number")
         submit_student = st.form_submit_button("Save Student")
 
-        if submit_student and name:
-            # Note: Headers in Sheet should be: name, class, total_fee, parent_phone
-            students_sheet.append_row([name, student_class, total_fee, parent_phone])
-            st.success(f"✅ {name} added!")
+        if submit_student and name_input:
+            students_sheet.append_row([name_input, class_input, fee_input, phone_input])
+            st.success(f"✅ {name_input} added!")
             st.rerun()
 
 # --- SECTION: RECORD PAYMENT ---
 with st.expander("💰 Record New Payment"):
     if not students_df.empty:
         with st.form("payment_form", clear_on_submit=True):
-            # Using 'name' (lowercase) because of our fetch_data function
+            # Use lowercase 'name' from fetch_data
             student_names = sorted(students_df['name'].tolist())
             selected_name = st.selectbox("Select Student", student_names)
             
-            amount_paid = st.number_input("Amount Paid (₦)", min_value=0.0)
-            date_paid = st.date_input("Date Paid", value=now.date())
-            time_paid = st.time_input("Time Paid", value=now.time())
+            amt = st.number_input("Amount Paid (₦)", min_value=0.0)
+            dt = st.date_input("Date Paid", value=now.date())
+            tm = st.time_input("Time Paid", value=now.time())
             
-            paid_by = st.text_input("Paid By")
-            recorded_by = st.text_input("Recorded By (Staff)")
-            term = st.selectbox("Term", ["First Term", "Second Term", "Third Term"])
-            session = st.text_input("Session (e.g., 2025/2026)")
+            p_by = st.text_input("Paid By (Payer)")
+            r_by = st.text_input("Recorded By (Staff)")
+            trm = st.selectbox("Term", ["First Term", "Second Term", "Third Term"])
+            ses = st.text_input("Session (e.g., 2025/2026)")
             submit_pay = st.form_submit_button("Confirm Payment")
 
             if submit_pay:
-                # Headers: id (null), name, amount_paid, date, time, payer, staff, term, session
+                # UPDATED: Matches your exact column order
+                # Order: name, amount_paid, date_paid, time_paid, paid_by, recorded_by, term, session
                 payments_sheet.append_row([
-                    None, selected_name, amount_paid, 
-                    str(date_paid), str(time_paid), 
-                    paid_by, recorded_by, term, session
+                    selected_name, 
+                    amt, 
+                    str(dt), 
+                    str(tm), 
+                    p_by, 
+                    r_by, 
+                    trm, 
+                    ses
                 ])
-                st.success("✅ Payment recorded!")
+                st.success(f"✅ Payment for {selected_name} recorded!")
                 st.rerun()
+    else:
+        st.warning("Please add students first.")
 
 # --- SECTION: BALANCES & SEARCH ---
 with st.expander("🔍 View Balances & Debtors", expanded=True):
     if not students_df.empty:
         c1, c2, c3 = st.columns(3)
         with c1:
-            # Check if columns exist before filtering
             terms = ["All Terms"]
             if 'term' in payments_df.columns:
                 terms += sorted(payments_df['term'].unique().tolist())
@@ -133,7 +140,7 @@ with st.expander("🔍 View Balances & Debtors", expanded=True):
             if class_filter != "All Classes" and s['class'] != class_filter:
                 continue
             
-            # Match payments
+            # Match payments by name
             s_pays = pd.DataFrame()
             if not payments_df.empty and 'name' in payments_df.columns:
                 s_pays = payments_df[payments_df['name'] == s['name']]
@@ -144,9 +151,12 @@ with st.expander("🔍 View Balances & Debtors", expanded=True):
                 if session_filter != "All Sessions" and 'session' in s_pays.columns:
                     s_pays = s_pays[s_pays['session'] == session_filter]
 
-            total_pd = s_pays['amount_paid'].sum() if not s_pays.empty else 0
-            # Use .get() to avoid errors if total_fee is missing
-            fee = s.get('total_fee', 0)
+            # Use standardized lowercase column name 'amount_paid'
+            total_pd = 0
+            if not s_pays.empty and 'amount_paid' in s_pays.columns:
+                total_pd = pd.to_numeric(s_pays['amount_paid'], errors='coerce').sum()
+
+            fee = pd.to_numeric(s.get('total_fee', 0), errors='coerce')
             bal = fee - total_pd
             
             if only_debtors and bal <= 0:
@@ -163,17 +173,16 @@ with st.expander("🔍 View Balances & Debtors", expanded=True):
         if results:
             st.dataframe(pd.DataFrame(results), use_container_width=True)
         else:
-            st.info("No matching records.")
+            st.info("No records found.")
 
 # --- SECTION: ADMIN DELETE ---
 with st.expander("🗑️ Admin: Remove Student"):
     MASTER_CODE = "2026"
     if not students_df.empty:
-        admin_name = st.selectbox("Student to Remove", sorted(students_df['name'].tolist()), key="del_select")
-        pass_code = st.text_input("Master Code", type="password", key="del_pass")
+        admin_name = st.selectbox("Student to Remove", sorted(students_df['name'].tolist()))
+        pass_code = st.text_input("Master Code", type="password")
         if st.button("Delete Permanently"):
             if pass_code == MASTER_CODE:
-                # Search in column 1 (Name)
                 cell = students_sheet.find(admin_name, in_column=1)
                 if cell:
                     students_sheet.delete_rows(cell.row)
