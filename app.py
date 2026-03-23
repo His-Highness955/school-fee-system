@@ -213,17 +213,20 @@ else:
 # 7️⃣ Admin: Delete Student Record
 # -------------------------------
 st.header("🗑️ Admin: Delete Student")
-MASTER_CODE = "2026" # Change this to your preferred code
+MASTER_CODE = "BOUESTI-2026" 
 
 with st.expander("Open Delete Panel"):
-    with st.form("delete_student_form"):
-        st.write("Deleting a student removes them from the database.")
-        students_list = get_students_df()
+    # Refresh data inside the expander to ensure we have the latest list
+    students_list = get_students_df()
+    
+    if not students_list.empty:
+        # Create a display list for the selectbox
+        # We ensure student_id is treated as a string for the mapping
+        delete_options = {f"{str(row['student_id'])} - {row['name']}": str(row['student_id']) for _, row in students_list.iterrows()}
         
-        if not students_list.empty:
-            # Map names to IDs for precise deletion
-            delete_options = {f"{row['student_id']} - {row['name']}": row['student_id'] for _, row in students_list.iterrows()}
-            selected_to_delete = st.selectbox("Select Student to Delete", list(delete_options.keys()))
+        with st.form("delete_student_form"):
+            st.write("Deleting a student removes them from the database.")
+            selected_display = st.selectbox("Select Student to Delete", list(delete_options.keys()))
             
             master_input = st.text_input("Enter Master Code", type="password")
             confirm_check = st.checkbox("I understand this action is permanent")
@@ -233,20 +236,27 @@ with st.expander("Open Delete Panel"):
             if delete_submit:
                 if master_input == MASTER_CODE and confirm_check:
                     try:
-                        # Find student ID in the sheet
-                        student_id_to_find = delete_options[selected_to_delete]
-                        cell = students_sheet.find(str(student_id_to_find))
-                        students_sheet.delete_rows(cell.row)
-                        st.success(f"✅ Student {selected_to_delete} deleted successfully.")
-                        st.rerun()
+                        student_id_to_find = delete_options[selected_display]
+                        
+                        # Use the students_sheet to find the cell. 
+                        # We search for the specific ID in the first column (usually where IDs are)
+                        cell = students_sheet.find(student_id_to_find)
+                        
+                        if cell:
+                            students_sheet.delete_rows(cell.row)
+                            st.success(f"✅ Student {selected_display} deleted successfully.")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Could not find ID '{student_id_to_find}' in the spreadsheet. Check if the ID column has changed.")
+                            
                     except Exception as e:
-                        st.error(f"Error: Could not locate row. {e}")
+                        st.error(f"Error during deletion: {e}")
                 elif master_input != MASTER_CODE:
                     st.error("❌ Incorrect Master Code.")
                 else:
                     st.warning("⚠️ Please check the confirmation box.")
-        else:
-            st.write("No students found to delete.")
+    else:
+        st.write("No students found to delete.")
 
 # -------------------------------
 # 8️⃣ Tutorial
