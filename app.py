@@ -10,12 +10,20 @@ import pytz
 # -------------------------------
 # 1️⃣ Setup & Network Time
 # -------------------------------
-# Using pytz to get accurate network time regardless of server location
 try:
     local_tz = pytz.timezone('Africa/Lagos') 
     now = datetime.now(local_tz)
 except:
-    now = datetime.now() # Fallback
+    now = datetime.now()
+
+# Define the standard school classes
+SCHOOL_CLASSES = [
+    "Kg 1", "Kg 1b", "Kg 2", 
+    "Nur 1", "Nur 2", 
+    "Pry 1", "Pry 2", "Pry 3", "Pry 4", "Pry 5", 
+    "Jss 1", "Jss 2", "Jss 3", 
+    "Ss 1", "Ss 2", "Ss 3"
+]
 
 # -------------------------------
 # 2️⃣ Connection Logic
@@ -60,7 +68,10 @@ st.write(f"📅 **Network Date:** {now.strftime('%A, %d %B %Y')} | 🕒 **Time:*
 with st.expander("➕ Add New Student", expanded=False):
     with st.form("student_form", clear_on_submit=True):
         name = st.text_input("Student Full Name")
-        student_class = st.text_input("Class")
+        
+        # CHANGED: Now a selectable dropdown
+        student_class = st.selectbox("Select Class", SCHOOL_CLASSES)
+        
         total_fee = st.number_input("Total School Fee (₦)", min_value=0.0)
         parent_phone = st.text_input("Parent Phone Number")
         submit_student = st.form_submit_button("Save Student")
@@ -68,7 +79,7 @@ with st.expander("➕ Add New Student", expanded=False):
         if submit_student:
             if name:
                 students_sheet.append_row([name, student_class, total_fee, parent_phone])
-                st.success(f"✅ {name} added to registry.")
+                st.success(f"✅ {name} added to {student_class}!")
             else:
                 st.error("Name is required.")
 
@@ -77,10 +88,11 @@ with st.expander("💰 Record New Payment", expanded=False):
     students_df = get_students_df()
     if not students_df.empty:
         with st.form("payment_form", clear_on_submit=True):
-            selected_name = st.selectbox("Select Student", students_df['name'].tolist())
-            amount_paid = st.number_input("Amount Paid (₦)", min_value=0.0)
+            # Sort names alphabetically for easier selection
+            student_names = sorted(students_df['name'].tolist())
+            selected_name = st.selectbox("Select Student", student_names)
             
-            # Network time used as default values
+            amount_paid = st.number_input("Amount Paid (₦)", min_value=0.0)
             date_paid = st.date_input("Date Paid", value=now.date())
             time_paid = st.time_input("Time Paid", value=now.time())
             
@@ -104,22 +116,28 @@ with st.expander("💰 Record New Payment", expanded=False):
 with st.expander("🔍 View Balances & Debtors", expanded=True):
     payments_df = get_payments_df()
     
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2, c3 = st.columns(3)
+    with c1:
         term_filter = st.selectbox("Filter Term", ["All Terms"] + (payments_df['term'].unique().tolist() if not payments_df.empty else []))
-    with col2:
+    with c2:
         session_filter = st.selectbox("Filter Session", ["All Sessions"] + (payments_df['session'].unique().tolist() if not payments_df.empty else []))
+    with c3:
+        # ADDED: Filter balances by class
+        class_filter = st.selectbox("Filter Class", ["All Classes"] + SCHOOL_CLASSES)
     
     search_q = st.text_input("Search Student Name")
     only_debtors = st.checkbox("Show Only Debtors")
 
-    if search_q or only_debtors:
+    if not students_df.empty:
         results = []
         for _, s in students_df.iterrows():
+            # Apply Filters
             if search_q and search_q.lower() not in s['name'].lower():
                 continue
+            if class_filter != "All Classes" and s['class'] != class_filter:
+                continue
             
-            # Filter payments for this student
+            # Calculate payments
             s_pays = payments_df[payments_df['name'] == s['name']]
             if term_filter != "All Terms":
                 s_pays = s_pays[s_pays['term'] == term_filter]
@@ -136,29 +154,29 @@ with st.expander("🔍 View Balances & Debtors", expanded=True):
 
         if results:
             res_df = pd.DataFrame(results)
-            st.table(res_df)
+            st.dataframe(res_df, use_container_width=True) # Dataframe looks cleaner than Table
             
-            # Export
             csv = res_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download This List", data=csv, file_name="student_balances.csv", mime="text/csv")
+            st.download_button("📥 Download List as CSV", data=csv, file_name=f"balances_{class_filter}.csv", mime="text/csv")
         else:
-            st.info("No records found.")
+            st.info("No records found for the selected filters.")
 
 # --- SECTION: ADMIN DELETE ---
 with st.expander("🗑️ Admin: Remove Student", expanded=False):
     MASTER_CODE = "2026"
-    admin_name = st.selectbox("Student to Remove", students_df['name'].tolist() if not students_df.empty else ["None"])
-    pass_code = st.text_input("Master Code", type="password")
-    if st.button("Delete Permanently"):
-        if pass_code == MASTER_CODE:
-            cell = students_sheet.find(admin_name, in_column=1)
-            if cell:
-                students_sheet.delete_rows(cell.row)
-                st.success("Record deleted.")
-                st.rerun()
-        else:
-            st.error("Incorrect code.")
-
+    if not students_df.empty:
+        admin_name = st.selectbox("Student to Remove", sorted(students_df['name'].tolist()))
+        pass_code = st.text_input("Master Code", type="password", key="del_pass")
+        if st.button("Delete Permanently"):
+            if pass_code == MASTER_CODE:
+                cell = students_sheet.find(admin_name, in_column=1)
+                if cell:
+                    students_sheet.delete_rows(cell.row)
+                    st.success("Record deleted successfully.")
+                    st.rerun()
+            else:
+                st.error("Incorrect code.")
+                
 # -------------------------------
 # 8️⃣ Tutorial
 # -------------------------------
