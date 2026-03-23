@@ -4,9 +4,20 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import io
 import json
+from datetime import datetime
+import pytz  # For Network Timezone
 
 # -------------------------------
-# 1️⃣ Load Service Account & Spreadsheet
+# 1️⃣ Configuration & Time Setup
+# -------------------------------
+# Set your local timezone here
+local_tz = pytz.timezone('Africa/Lagos') 
+network_now = datetime.now(local_tz)
+current_date_str = network_now.strftime("%Y-%m-%d")
+current_time_str = network_now.strftime("%H:%M:%S")
+
+# -------------------------------
+# 2️⃣ Load Service Account & Spreadsheet
 # -------------------------------
 try:
     creds_dict = json.loads(st.secrets["google_service_account"]["json"])
@@ -14,12 +25,9 @@ try:
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
 except Exception as e:
-    st.error(f"❌ Connection Error: Ensure secrets are configured in Streamlit Cloud. {e}")
+    st.error(f"❌ Connection Error: {e}")
     st.stop()
 
-# -------------------------------
-# 2️⃣ Connect to Google Sheet
-# -------------------------------
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1DHdvbVUjUhHN4vwXG6jByubgMjfKzWp2Sq3yg-zOAzc/edit"
 
 try:
@@ -27,84 +35,80 @@ try:
     sheet = client.open_by_url(url_clean)
     students_sheet = sheet.worksheet("students")
     payments_sheet = sheet.worksheet("payments")
-    st.success("✅ Connected to Google Sheets successfully!")
 except Exception as e:
-    st.error(f"Cannot access the spreadsheet: {e}")
+    st.error(f"Cannot access spreadsheet: {e}")
     st.stop()
 
 # -------------------------------
 # 3️⃣ Helper Functions
 # -------------------------------
-def clean_columns(df):
-    df.columns = [str(col).strip() if col is not None else "" for col in df.columns]
-    return df
-
 def get_students_df():
     df = pd.DataFrame(students_sheet.get_all_records())
-    df = clean_columns(df)
     if 'total_fee' in df.columns:
         df['total_fee'] = pd.to_numeric(df['total_fee'], errors='coerce').fillna(0.0)
     return df
 
 def get_payments_df():
     df = pd.DataFrame(payments_sheet.get_all_records())
-    df = clean_columns(df)
     if 'amount_paid' in df.columns:
         df['amount_paid'] = pd.to_numeric(df['amount_paid'], errors='coerce').fillna(0.0)
     return df
 
-def add_student(name, student_class, total_fee, parent_phone_number):
-    # Column A is now Name
-    students_sheet.append_row([name, student_class, total_fee, parent_phone_number])
-
-def add_payment(name, amount_paid, date_paid, time_paid, paid_by, recorded_by, term, session):
-    # Column B in payments is now Name
-    payments_sheet.append_row([None, name, amount_paid, date_paid, time_paid, paid_by, recorded_by, term, session])
-
 # -------------------------------
 # 4️⃣ Add New Student
 # -------------------------------
-st.header("Add New Student")
+st.header("👤 Add New Student")
 with st.form("student_form"):
     name = st.text_input("Student Full Name")
     student_class = st.text_input("Class")
     total_fee = st.number_input("Total School Fee", min_value=0.0)
-    parent_phone_number = st.text_input("Parent Phone Number")
+    parent_phone = st.text_input("Parent Phone Number")
     submit = st.form_submit_button("Add Student")
 
-    if submit:
-        students_df = get_students_df()
-        if not name:
-            st.error("Please enter a name.")
-        elif name in students_df['name'].values:
-            st.error("❌ A student with this name already exists.")
-        else:
-            add_student(name, student_class, total_fee, parent_phone_number)
-            st.success(f"✅ {name} added successfully")
+    if submit and name:
+        students_sheet.append_row([name, student_class, total_fee, parent_phone])
+        st.success(f"✅ {name} added!")
 
 # -------------------------------
-# 5️⃣ Record Payment
+# 5️⃣ Record Payment (With Network Time)
 # -------------------------------
-st.header("Record Payment")
+st.header("💰 Record Payment")
+st.info(f"🌐 **Current Network Time:** {current_date_str} | {current_time_str}")
+
 students_df = get_students_df()
 if not students_df.empty:
-    student_names = students_df['name'].tolist()
     with st.form("payment_form"):
-        selected_name = st.selectbox("Select Student", student_names)
+        selected_name = st.selectbox("Select Student", students_df['name'].tolist())
         amount_paid = st.number_input("Amount Paid", min_value=0.0)
-        date_paid = st.date_input("Date Paid")
-        time_paid = st.time_input("Time Paid")
+        
+        # We auto-fill these with network time, but allow editing if needed
+        date_paid = st.date_input("Date Paid", value=network_now.date())
+        time_paid = st.time_input("Time Paid", value=network_now.time())
+        
         paid_by = st.text_input("Paid By")
         recorded_by = st.text_input("Recorded By (Staff)")
         term = st.selectbox("Term", ["First Term", "Second Term", "Third Term"])
         session = st.text_input("Session (e.g. 2025/2026)")
+        
         submit_payment = st.form_submit_button("Record Payment")
 
         if submit_payment:
-            add_payment(selected_name, amount_paid, str(date_paid), str(time_paid), paid_by, recorded_by, term, session)
-            st.success(f"✅ Payment recorded for {selected_name}")
+            # Saving to Sheet
+            payments_sheet.append_row([
+                None, 
+                selected_name, 
+                amount_paid, 
+                str(date_paid), 
+                str(time_paid), 
+                paid_by, 
+                recorded_by, 
+                term, 
+                session
+            ])
+            st.success(f"✅ Payment for {selected_name} recorded at {time_paid}")
 else:
-    st.warning("No students available. Add students first.")
+    st.warning("Add students first.")
+
 
 # -------------------------------
 # 6️⃣ Student Balances & Debtors
