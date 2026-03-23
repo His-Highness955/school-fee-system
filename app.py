@@ -210,15 +210,54 @@ else:
     st.info("🔎 Type a student name or check 'Filter by Debtors' to see results.")
 
 # -------------------------------
-# 7️⃣ Tutorial
+# 7️⃣ Admin: Delete Student Record
+# -------------------------------
+st.header("🗑️ Admin: Delete Student")
+MASTER_CODE = "BOUESTI-2026" # Change this to your preferred code
+
+with st.expander("Open Delete Panel"):
+    with st.form("delete_student_form"):
+        st.write("Deleting a student removes them from the database.")
+        students_list = get_students_df()
+        
+        if not students_list.empty:
+            # Map names to IDs for precise deletion
+            delete_options = {f"{row['student_id']} - {row['name']}": row['student_id'] for _, row in students_list.iterrows()}
+            selected_to_delete = st.selectbox("Select Student to Delete", list(delete_options.keys()))
+            
+            master_input = st.text_input("Enter Master Code", type="password")
+            confirm_check = st.checkbox("I understand this action is permanent")
+            
+            delete_submit = st.form_submit_button("Permanent Delete")
+            
+            if delete_submit:
+                if master_input == MASTER_CODE and confirm_check:
+                    try:
+                        # Find student ID in the sheet
+                        student_id_to_find = delete_options[selected_to_delete]
+                        cell = students_sheet.find(str(student_id_to_find))
+                        students_sheet.delete_rows(cell.row)
+                        st.success(f"✅ Student {selected_to_delete} deleted successfully.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: Could not locate row. {e}")
+                elif master_input != MASTER_CODE:
+                    st.error("❌ Incorrect Master Code.")
+                else:
+                    st.warning("⚠️ Please check the confirmation box.")
+        else:
+            st.write("No students found to delete.")
+
+# -------------------------------
+# 8️⃣ Tutorial
 # -------------------------------
 st.header("📖 How to Use the School Fee System")
 with st.expander("1️⃣ Add New Student"):
-    st.write("- Fill Student ID, Name, Class, Total Fee, Parent Phone Number  \n- Click Add Student")
+    st.write("- Fill Student ID, Name, Class, Total Fee, Parent Phone Number  \n- Click Add Student")
 with st.expander("2️⃣ Record Payment"):
-    st.write("- Select student, fill amount, date/time, paid by, recorded by, term/session  \n- Click Record Payment")
+    st.write("- Select student, fill amount, date/time, paid by, recorded by, term/session  \n- Click Record Payment")
 with st.expander("3️⃣ Search/Filter"):
-    st.write("- Search student by name or check 'Filter by Debtors'  \n- Color-coded balances: Green=Full, Orange=Partial, Red=No Payment")
+    st.write("- Search student by name or check 'Filter by Debtors'  \n- Color-coded balances: Green=Full, Orange=Partial, Red=No Payment")
 with st.expander("4️⃣ Export Debtors"):
     st.write("- After filtering debtors, click Export Debtors to CSV")
 st.success("You are ready to manage school fees ✅")
