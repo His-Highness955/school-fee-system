@@ -127,23 +127,34 @@ if 'term' not in payments_df.columns or 'session' not in payments_df.columns:
     st.error("❌ Payments sheet must have 'term' and 'session' columns")
     st.stop()
 
-terms = ["All Terms"] + payments_df['term'].dropna().unique().tolist()
-sessions = ["All Sessions"] + payments_df['session'].dropna().unique().tolist()
-selected_term = st.selectbox("Filter by Term", terms)
-selected_session = st.selectbox("Filter by Session", sessions)
+# Filters
+col_a, col_b = st.columns(2)
+with col_a:
+    terms = ["All Terms"] + payments_df['term'].dropna().unique().tolist()
+    selected_term = st.selectbox("Filter by Term", terms)
+with col_b:
+    sessions = ["All Sessions"] + payments_df['session'].dropna().unique().tolist()
+    selected_session = st.selectbox("Filter by Session", sessions)
 
-search_name = st.text_input("Search Student by Name")
-filter_debtors = st.checkbox("Filter by Debtors")
+search_name = st.text_input("Search Student by Name (Leave empty to clear results)")
+filter_debtors = st.checkbox("Show all Debtors")
 
+# Updated Logic: Only run if there is a search query OR the debtor filter is active
 if search_name or filter_debtors:
     filtered_students = []
+    
     for _, row in students_df.iterrows():
-        student_id = row['student_id']
-        name = row['name']
+        student_id = str(row['student_id'])
+        name = str(row['name'])
         student_class = row['class']
         total_fee = row.get('total_fee', 0.0)
 
-        student_payments = payments_df[payments_df['student_id'] == student_id]
+        # 1. Handle Name Search (Only show the specific person if searching)
+        if search_name and search_name.lower() not in name.lower():
+            continue
+
+        # Calculate payments
+        student_payments = payments_df[payments_df['student_id'].astype(str) == student_id]
         if selected_term != "All Terms":
             student_payments = student_payments[student_payments['term'] == selected_term]
         if selected_session != "All Sessions":
@@ -152,6 +163,7 @@ if search_name or filter_debtors:
         total_paid = student_payments['amount_paid'].sum() if not student_payments.empty else 0
         balance = total_fee - total_paid
 
+        # 2. Handle Debtor Filter
         if filter_debtors and balance <= 0:
             continue
 
@@ -164,50 +176,46 @@ if search_name or filter_debtors:
             "parent_phone_number": row.get('parent_phone_number', '')
         })
 
-    st.subheader("Filtered Student Balances")
-    debtors_list = []
+    # Display Results
+    if filtered_students:
+        st.subheader(f"Results ({len(filtered_students)})")
+        debtors_list = []
 
-    for f in filtered_students:
-        if f['balance'] == 0:
-            color = 'green'
-            status = "Paid in Full ✅"
-        elif f['balance'] < f['total_fee']:
-            color = 'orange'
-            status = "Partial Payment ⚠️"
-            debtors_list.append(f)
-        else:
-            color = 'red'
-            status = "No Payment ❌"
-            debtors_list.append(f)
+        for f in filtered_students:
+            # Determine color and status
+            if f['balance'] <= 0:
+                color = 'green'
+                status = "Paid in Full ✅"
+            elif f['balance'] < f['total_fee']:
+                color = 'orange'
+                status = "Partial Payment ⚠️"
+                debtors_list.append(f)
+            else:
+                color = 'red'
+                status = "No Payment ❌"
+                debtors_list.append(f)
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.markdown(f"**{f['name']} ({f['class']})**")
-        col2.markdown(f"Total Fee: ₦{f['total_fee']}")
-        col3.markdown(f"Paid: ₦{f['total_paid']}")
-        col4.markdown(f"Balance: <span style='color:{color};font-weight:bold'>₦{f['balance']}</span>", unsafe_allow_html=True)
-        st.markdown(f"Parent Phone: {f['parent_phone_number']}")
-        st.markdown(f"Status: **{status}**")
-        st.markdown("---")
+            # UI Cards
+            with st.container():
+                c1, c2, c3, c4 = st.columns(4)
+                c1.markdown(f"**{f['name']} ({f['class']})**")
+                c2.markdown(f"Total: ₦{f['total_fee']}")
+                c3.markdown(f"Paid: ₦{f['total_paid']}")
+                c4.markdown(f"Balance: <span style='color:{color};font-weight:bold'>₦{f['balance']}</span>", unsafe_allow_html=True)
+                st.text(f"Parent: {f['parent_phone_number']} | Status: {status}")
+                st.divider()
 
-    st.subheader("Debtors Only")
-    if debtors_list:
-        for d in debtors_list:
-            st.error(f"{d['name']} ({d['class']}) - Balance: ₦{d['balance']} - Parent Phone: {d['parent_phone_number']}")
-
-        if st.button("Export Debtors to CSV"):
-            df = pd.DataFrame(debtors_list)
+        # Export Button for Debtors
+        if filter_debtors and debtors_list:
+            df_debt = pd.DataFrame(debtors_list)
             buffer = io.BytesIO()
-            df.to_csv(buffer, index=False)
-            st.download_button(
-                label="Download Debtors CSV",
-                data=buffer,
-                file_name="debtors.csv",
-                mime="text/csv"
-            )
+            df_debt.to_csv(buffer, index=False)
+            st.download_button("Download Debtors List", data=buffer, file_name="debtors.csv", mime="text/csv")
     else:
-        st.success("No debtors found ✅")
+        st.info("No matching records found.")
 else:
-    st.info("🔎 Type a student name or check 'Filter by Debtors' to see results.")
+    # This shows when the search box is empty
+    st.info("🔎 Please enter a student name to see their details.")
 
 # -------------------------------
 # 7️⃣ Admin: Delete Student Record
