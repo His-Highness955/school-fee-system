@@ -8,12 +8,15 @@ from datetime import datetime
 import pytz  # Handles Internet/Network Timezones
 
 # -------------------------------
-# 1️⃣ Sync Internet Time (Lagos, Nigeria)
+# 1️⃣ Sync Internet Time Function
 # -------------------------------
-# This ensures the time is correct regardless of where the server is hosted
-nigeria_tz = pytz.timezone('Africa/Lagos')
-internet_now = datetime.now(nigeria_tz)
+def get_internet_time():
+    # This ensures the time is correct regardless of where the server is hosted
+    nigeria_tz = pytz.timezone('Africa/Lagos')
+    return datetime.now(nigeria_tz)
 
+# Initial fetch for display
+internet_now = get_internet_time()
 current_date_str = internet_now.strftime("%Y-%m-%d")
 current_time_str = internet_now.strftime("%H:%M:%S")
 
@@ -28,6 +31,7 @@ try:
     client = gspread.authorize(creds)
     
     # Open Spreadsheet
+    # Ensure this URL matches your actual Google Sheet
     SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1DHdvbVUjUhHN4vwXG6jByubgMjfKzWp2Sq3yg-zOAzc/edit"
     url_clean = SPREADSHEET_URL.strip().split("/edit")[0]
     sheet = client.open_by_url(url_clean)
@@ -48,28 +52,27 @@ def fetch_data(worksheet):
     return df
 
 # -------------------------------
-# 3️⃣ Main UI
+# 3️⃣ Main UI & Global Refresh
 # -------------------------------
 st.title("🏫 School Fee Management System")
-st.info(f"🌐 **Internet Time (Verified):** {current_date_str} | {current_time_str}")
+st.info(f"🌐 **Internet Time (Lagos):** {current_date_str} | {current_time_str}")
 
-# Refresh Data
+# Refresh Data from Sheets
 students_df = fetch_data(students_sheet)
 payments_df = fetch_data(payments_sheet)
+
+# Global Class List
+class_options = [
+    "Kg 1", "Kg 1b", "Kg 2", "Nur 1", "Nur 2", 
+    "Pry 1", "Pry 2", "Pry 3", "Pry 4", "Pry 5", 
+    "Jss 1", "Jss 2", "Jss 3", "Ss 1", "Ss 2", "Ss 3"
+]
 
 # --- SECTION: ADD STUDENT ---
 with st.expander("➕ Add New Student", expanded=False):
     with st.form("student_form", clear_on_submit=True):
         name_in = st.text_input("Student Full Name")
-        
-        # Selectable Class List
-        class_options = [
-            "Kg 1", "Kg 1b", "Kg 2", "Nur 1", "Nur 2", 
-            "Pry 1", "Pry 2", "Pry 3", "Pry 4", "Pry 5", 
-            "Jss 1", "Jss 2", "Jss 3", "Ss 1", "Ss 2", "Ss 3"
-        ]
         class_in = st.selectbox("Select Class", class_options)
-        
         fee_in = st.number_input("Total School Fee (₦)", min_value=0.0)
         phone_in = st.text_input("Parent Phone Number")
         
@@ -90,9 +93,10 @@ with st.expander("💰 Record New Payment", expanded=False):
             
             amount = st.number_input("Amount Paid (₦)", min_value=0.0)
             
-            # Defaulted to current internet time
-            date_val = st.date_input("Date Paid", value=internet_now.date())
-            time_val = st.time_input("Time Paid", value=internet_now.time())
+            # Recalculate Internet Time specifically for this form rendering
+            live_now = get_internet_time()
+            date_val = st.date_input("Date Paid", value=live_now.date())
+            time_val = st.time_input("Time Paid", value=live_now.time())
             
             payer = st.text_input("Paid By (Payer Name)")
             staff = st.text_input("Recorded By (Staff Name)")
@@ -102,18 +106,21 @@ with st.expander("💰 Record New Payment", expanded=False):
             submit_pay = st.form_submit_button("Confirm Payment")
 
             if submit_pay:
+                # Capture the EXACT internet time at the precise second of submission
+                exact_time = get_internet_time().strftime("%H:%M:%S")
+                
                 # ORDER: name, amount_paid, date_paid, time_paid, paid_by, recorded_by, term, session
                 payments_sheet.append_row([
                     selected_student, 
                     amount, 
                     str(date_val), 
-                    str(time_val), 
+                    exact_time, 
                     payer, 
                     staff, 
                     term_val, 
                     session_val
                 ])
-                st.success(f"✅ Payment for {selected_student} recorded!")
+                st.success(f"✅ Payment for {selected_student} recorded at {exact_time}!")
                 st.rerun()
     else:
         st.warning("Please add students first.")
@@ -134,7 +141,6 @@ with st.expander("🔍 View Balances & Debtors", expanded=True):
 
         report_data = []
         for _, s in students_df.iterrows():
-            # Filters
             if search_name and search_name.lower() not in s['name'].lower():
                 continue
             if c_filter != "All Classes" and s['class'] != c_filter:
@@ -183,6 +189,7 @@ with st.expander("🗑️ Admin: Remove Student", expanded=False):
         m_code = st.text_input("Master Code", type="password")
         if st.button("Delete Permanently"):
             if m_code == MASTER_CODE:
+                # Find by name in the first column
                 cell = students_sheet.find(to_delete, in_column=1)
                 if cell:
                     students_sheet.delete_rows(cell.row)
@@ -190,9 +197,7 @@ with st.expander("🗑️ Admin: Remove Student", expanded=False):
                     st.rerun()
             else:
                 st.error("Invalid Master Code.")
-                
-# -------------------------------
-# 8️⃣ Tutorial
-# -------------------------------
+
+# --- SECTION: TUTORIAL ---
 st.header("📖 Quick Guide")
-st.info("1. **Add Student**: Use the student's full name. \n2. **Record Payment**: Select the name from the dropdown. \n3. **Search**: Type a name to see their specific balance.")
+st.info("1. **Add Student**: Select a class from the dropdown and save. \n2. **Record Payment**: Time is pulled live from the internet upon submission. \n3. **View Balances**: Use filters to narrow down specific classes or debtors.")
